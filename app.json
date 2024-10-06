@@ -1,0 +1,10 @@
+{
+  "name": "HLL Server Browser Socket",
+  "description": "Queries HLL servers for statuses and sends to connected clients",
+  "repository": "https://github.com/mattwright324/hll-server-browser-socket",
+  "keywords": [
+    "node",
+    "websocket",
+    "socket.io"
+  ]
+}
