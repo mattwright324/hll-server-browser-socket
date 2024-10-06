@@ -6,6 +6,10 @@ const http = require('http');
 const server = http.createServer(app);
 const moment = require('moment');
 
+app.get('/', (req, res) => {
+    res.sendFile(__dirname + '/index.html');
+});
+
 const {Server} = require("socket.io");
 const io = new Server(server, {
     cors: {

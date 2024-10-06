@@ -1,17 +1,12 @@
 <html>
-<head>
-    <script src="/socket.io/socket.io.js"></script>
-    <script>
-        let socket = io();
-        let el;
-
-        socket.on('time', (timeString) => {
-            el = document.getElementById('server-time');
-            el.innerHTML = 'Server time: ' + timeString;
-        });
-    </script>
-</head>
 <body>
-<p id="server-time"></p>
+<ul>
+    <li><a href="https://mattw.io/hll-server-browser/?hide_e=true&filter=en">
+        hll-server-browser
+    </a></li>
+    <li><a href="https://github.com/mattwright324/hll-server-browser-socket">
+        hll-server-browser-socket
+    </a></li>
+</ul>
 </body>
 </html>
