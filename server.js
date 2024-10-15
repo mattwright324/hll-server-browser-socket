@@ -5,6 +5,30 @@ const app = express();
 const http = require('http');
 const server = http.createServer(app);
 const moment = require('moment');
+const { Client } = require('pg');
+
+const dbConfig = {
+    host: process.env.PG_HOST,
+    port: process.env.PG_PORT,
+    database: process.env.PG_DBNAME,
+    user: process.env.PG_USER,
+    password: process.env.PG_PASS,
+}
+const dbConfigured = dbConfig.host && dbConfig.port && dbConfig.database && dbConfig.user && dbConfig.password && process.env.PG_SCHEMA;
+let client, connected;
+async function connect() {
+    if (dbConfigured) {
+        client = new Client(dbConfig);
+        await client.connect();
+        const res = await client.query('SELECT $1::text as connected', ['Connection to postgres successful!']);
+        console.log(res.rows[0].connected);
+        connected = true;
+    }
+}
+
+if (dbConfigured) {
+    connect();
+}
 
 app.get('/', (req, res) => {
     res.sendFile(__dirname + '/index.html');
@@ -204,6 +228,17 @@ function pollServers() {
                     }
                     if (!unknown_maps[map].gsValues.includes(gsKey)) {
                         unknown_maps[map].gsValues.push(gsKey)
+                    }
+                }
+                if (dbConfigured) {
+                    try {
+                        const map = info.map;
+                        let decoded = stripped_info?.gamestate?.decoded;
+                        client.query(`insert into ${process.env.PG_SCHEMA}.map_names (name, gs_gamemode, gs_map, gs_time_of_day, gs_weather, timestamp) 
+                                        values ($1, $2, $3, $4, $5, $6) on conflict (name, gs_gamemode, gs_map, gs_time_of_day, gs_weather) do nothing`,
+                            [map, decoded.gamemode, decoded.map, decoded.timeOfDay, decoded.weather, new Date()])
+                    } catch (e) {
+                        console.warn('Table insert failed', e)
                     }
                 }
 
