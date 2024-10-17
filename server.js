@@ -5,8 +5,8 @@ const app = express();
 const http = require('http');
 const server = http.createServer(app);
 const moment = require('moment');
-const { Client } = require('pg');
 
+const { Client } = require('pg');
 const dbConfig = {
     host: process.env.PG_HOST,
     port: process.env.PG_PORT,
@@ -15,20 +15,17 @@ const dbConfig = {
     password: process.env.PG_PASS,
 }
 const dbConfigured = dbConfig.host && dbConfig.port && dbConfig.database && dbConfig.user && dbConfig.password && process.env.PG_SCHEMA;
-let client, connected;
+let client, dbConnected;
 async function connect() {
     if (dbConfigured) {
         client = new Client(dbConfig);
         await client.connect();
         const res = await client.query('SELECT $1::text as connected', ['Connection to postgres successful!']);
         console.log(res.rows[0].connected);
-        connected = true;
+        dbConnected = true;
     }
 }
-
-if (dbConfigured) {
-    connect();
-}
+connect();
 
 app.get('/', (req, res) => {
     res.sendFile(__dirname + '/index.html');
@@ -167,7 +164,8 @@ let known_maps = [
     'SME', 'SME_N', 'Utah', 'Utah_N', 'DEV_C_Day_SKM', 'DEV_C_Night_SKM', 'DEV_C_SKM', 'DEV_D_Day_SKM',
     'DEV_D_Night_SKM', 'DEV_D_SKM', 'DEV_F_DAY_SKM', 'DEV_F_DUSK_SKM', 'DEV_F_RAIN_SKM', 'DEV_I_SKM',
     'DEV_I_MORNING_SKM', 'DEV_I_NIGHT_SKM', 'DEV_M_Night_SKM', 'DEV_M_Rain_SKM', 'DEV_M_SKM', 'Mortain_SKM_Day',
-    'Mortain_SKM_Overcast', 'Mortain_E', 'Mortain_SKM_Evening'
+    'Mortain_SKM_Overcast', 'Mortain_E', 'Mortain_SKM_Evening', 'DEV_K_Morning_SKM', 'DEV_K_Rain_SKM', 'DEV_K_Night_SKM',
+    'DEV_H_Day_SKM', 'DEV_H_Dusk_SKM'
 ]
 let unknown_maps = {}
 let update = {
@@ -230,7 +228,7 @@ function pollServers() {
                         unknown_maps[map].gsValues.push(gsKey)
                     }
                 }
-                if (dbConfigured) {
+                if (dbConnected) {
                     try {
                         const map = info.map;
                         let decoded = stripped_info?.gamestate?.decoded;

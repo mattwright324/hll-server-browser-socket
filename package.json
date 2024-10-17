@@ -14,7 +14,7 @@
   "license": "ISC",
   "dependencies": {
     "express": "^4.21.1",
-    "socket.io": "^4.7.2",
+    "socket.io": "^4.8.0",
     "node-cache": "^5.1.2",
     "steam-server-query": "^1.1.3",
     "moment": "^2.30.1",
