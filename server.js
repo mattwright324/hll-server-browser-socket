@@ -144,6 +144,8 @@ function masterServerQuery() {
     }
     queryServersForAppId(686810, "live_servers")
     queryServersForAppId(1504860, "pte_servers")
+    queryServersForAppId(3079210, "wdev1_servers")
+    queryServersForAppId(3132680, "wdev2_servers")
 }
 setInterval(masterServerQuery, moment.duration(10, 'minutes').asMilliseconds())
 masterServerQuery()
@@ -165,7 +167,8 @@ let known_maps = [
     'DEV_D_Night_SKM', 'DEV_D_SKM', 'DEV_F_DAY_SKM', 'DEV_F_DUSK_SKM', 'DEV_F_RAIN_SKM', 'DEV_I_SKM',
     'DEV_I_MORNING_SKM', 'DEV_I_NIGHT_SKM', 'DEV_M_Night_SKM', 'DEV_M_Rain_SKM', 'DEV_M_SKM', 'Mortain_SKM_Day',
     'Mortain_SKM_Overcast', 'Mortain_E', 'Mortain_SKM_Evening', 'DEV_K_Morning_SKM', 'DEV_K_Rain_SKM', 'DEV_K_Night_SKM',
-    'DEV_H_Day_SKM', 'DEV_H_Dusk_SKM'
+    'DEV_H_Day_SKM', 'DEV_H_Dusk_SKM', 'DEV_N', 'DEV_N_Day_SMK', 'DEV_N_Morning', 'DEV_N_Morning_SKM', 'DEV_N_Night',
+    'DEV_N_Night_SKM', "DEV_N_Day_SKM",
 ]
 let unknown_maps = {}
 let update = {
@@ -180,7 +183,13 @@ const pollInterval = moment.duration(15, 'seconds').asMilliseconds()
 function pollServers() {
     console.log("pollServers()")
 
-    const addresses = union([masterCache.get("live_servers") || [], masterCache.get("pte_servers") || [], infoCache.keys() || []])
+    const addresses = union([
+        masterCache.get("live_servers") || [],
+        masterCache.get("pte_servers") || [],
+        masterCache.get("wdev1_servers") || [],
+        masterCache.get("wdev2_servers") || [],
+        infoCache.keys() || []]
+    )
     console.log(`${addresses.length} addresses`)
 
     const server_infos = []
@@ -200,6 +209,7 @@ function pollServers() {
                     visibility: info?.visibility,
                     port: info?.port,
                     query: server,
+                    gameId: Number(info?.gameId),
                 }
 
                 const gsBase64 = info?.keywords?.split(",")?.find(str => str.startsWith("GS"))?.split(":")?.[1];
@@ -232,9 +242,11 @@ function pollServers() {
                     try {
                         const map = info.map;
                         let decoded = stripped_info?.gamestate?.decoded;
-                        client.query(`insert into ${process.env.PG_SCHEMA}.map_names (name, gs_gamemode, gs_map, gs_time_of_day, gs_weather, timestamp) 
+                        if (decoded) {
+                            client.query(`insert into ${process.env.PG_SCHEMA}.map_names (name, gs_gamemode, gs_map, gs_time_of_day, gs_weather, timestamp) 
                                         values ($1, $2, $3, $4, $5, $6) on conflict (name, gs_gamemode, gs_map, gs_time_of_day, gs_weather) do nothing`,
-                            [map, decoded.gamemode, decoded.map, decoded.timeOfDay, decoded.weather, new Date()])
+                                [map, decoded.gamemode, decoded.map, decoded.timeOfDay, decoded.weather, new Date()])
+                        }
                     } catch (e) {
                         console.warn('Table insert failed', e)
                     }
@@ -287,6 +299,7 @@ function pollServers() {
                     visibility: info?.visibility,
                     port: info?.port,
                     query: server,
+                    gameId: info?.gameId,
 
                     last_success: infoCache.getTtl(server) - serverTTL.asMilliseconds()
                 }
