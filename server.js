@@ -42,7 +42,7 @@ const io = new Server(server, {
 
 const { queryMasterServer, REGIONS, queryGameServerInfo, queryGameServerPlayer, queryGameServerRules} = require("steam-server-query")
 const NodeCache = require("node-cache");
-const masterTTL = moment.duration(7, 'days').asSeconds();
+const masterTTL = moment.duration(3, 'days').asSeconds();
 const checkperiod = moment.duration(1, 'minute').asSeconds();
 const union = (arr) => {return [...new Set(arr.flat())]}
 
