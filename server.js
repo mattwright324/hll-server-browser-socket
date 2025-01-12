@@ -151,7 +151,7 @@ setInterval(masterServerQuery, moment.duration(10, 'minutes').asMilliseconds())
 masterServerQuery()
 
 
-const serverTTL = moment.duration(7, 'days');
+const serverTTL = moment.duration(3, 'days');
 const serverTTLSec = serverTTL.asSeconds();
 const infoCache = new NodeCache({stdTTL: serverTTLSec, checkperiod: checkperiod});
 const rulesCache = new NodeCache({stdTTL: serverTTLSec, checkperiod: checkperiod});
