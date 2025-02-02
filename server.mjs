@@ -1,12 +1,21 @@
 'use strict';
 
-const express = require('express');
-const app = express();
-const http = require('http');
-const server = http.createServer(app);
-const moment = require('moment');
+import express from 'express';
 
-const { Client } = require('pg');
+const app = express();
+import http from 'http';
+
+const server = http.createServer(app);
+import {dirname} from 'node:path';
+import {fileURLToPath} from 'node:url';
+
+const __dirname = dirname(fileURLToPath(import.meta.url));
+
+import moment from 'moment';
+import pg from 'pg'
+
+const {Client} = pg
+
 const dbConfig = {
     host: process.env.PG_HOST,
     port: process.env.PG_PORT,
@@ -16,22 +25,24 @@ const dbConfig = {
 }
 const dbConfigured = dbConfig.host && dbConfig.port && dbConfig.database && dbConfig.user && dbConfig.password && process.env.PG_SCHEMA;
 let client, dbConnected;
+
 async function connect() {
     if (dbConfigured) {
         client = new Client(dbConfig);
         await client.connect();
-        const res = await client.query('SELECT $1::text as connected', ['Connection to postgres successful!']);
+        const res = await client.query('SELECT $1::text as connected', ['INFO Connection to postgres successful!']);
         console.log(res.rows[0].connected);
         dbConnected = true;
     }
 }
+
 connect();
 
 app.get('/', (req, res) => {
     res.sendFile(__dirname + '/index.html');
 });
+import {Server} from 'socket.io'
 
-const {Server} = require("socket.io");
 const io = new Server(server, {
     cors: {
         origin: ["http://localhost:4000", "https://mattw.io"],
@@ -40,11 +51,20 @@ const io = new Server(server, {
     }
 });
 
-const { queryMasterServer, REGIONS, queryGameServerInfo, queryGameServerPlayer, queryGameServerRules} = require("steam-server-query")
-const NodeCache = require("node-cache");
+import {
+    queryMasterServer,
+    REGIONS,
+    queryGameServerInfo,
+    queryGameServerPlayer,
+    queryGameServerRules
+} from "steam-server-query"
+import NodeCache from "node-cache";
+
 const masterTTL = moment.duration(3, 'days').asSeconds();
 const checkperiod = moment.duration(1, 'minute').asSeconds();
-const union = (arr) => {return [...new Set(arr.flat())]}
+const union = (arr) => {
+    return [...new Set(arr.flat())]
+}
 
 function base64ToHex(base64) {
     try {
@@ -68,6 +88,7 @@ function decodeGs(gsBase64) {
     const gsBin = hex2bin(gsHex);
 
     let temp = gsBin;
+
     function readBin(len, desc) {
         const bits = temp.slice(0, len)
         temp = temp.slice(len)
@@ -120,33 +141,42 @@ function decodeGs(gsBase64) {
 const masterCache = new NodeCache({stdTTL: masterTTL, checkperiod: checkperiod});
 masterCache.set("live_servers", []);
 masterCache.set("pte_servers", []);
+masterCache.set("wdev1_servers", []);
+masterCache.set("wdev2_servers", []);
+
+const expectedGameIds = new Set()
+
 function masterServerQuery() {
-    console.log("masterServerQuery()")
+    console.log("INFO Updating master server lists")
 
     function queryServersForAppId(appid, cacheKey) {
+        expectedGameIds.add(appid)
+
         queryMasterServer(
             // hl2master.steampowered.com:27011 - specifying specific ip my local called. for some reason whatever server deployed
             // was calling would return thousands of duplicate ips and only half of the actual server list
             '208.64.200.65:27011',
             REGIONS.ALL,
-            { appid: appid },
+            {appid: appid},
             30000,
             10000
         ).then(servers => {
             const filtered = union([servers])
 
-            console.log(`${cacheKey}/${appid} server list update [${filtered.length} servers (${servers.length} returned, ${servers.length - filtered.length} dupe(s))]`)
+            console.log(`INFO ${cacheKey}/${appid} server list update [${filtered.length} servers (${servers.length} returned, ${servers.length - filtered.length} dupe(s))]`)
 
             masterCache.set(cacheKey, servers)
         }).catch((err) => {
-            console.error("Failed to query master server list", err);
+            console.error("ERROR Failed to query master server list", err);
         });
     }
+
     queryServersForAppId(686810, "live_servers")
     queryServersForAppId(1504860, "pte_servers")
     queryServersForAppId(3079210, "wdev1_servers")
     queryServersForAppId(3132680, "wdev2_servers")
 }
+
 setInterval(masterServerQuery, moment.duration(10, 'minutes').asMilliseconds())
 masterServerQuery()
 
@@ -173,7 +203,7 @@ let known_maps = [
 let unknown_maps = {}
 let update = {
     time: new Date(),
-    status: "startup",
+    status: "init",
     servers: [],
     unknown_maps: unknown_maps,
 }
@@ -181,8 +211,6 @@ let update = {
 const pollInterval = moment.duration(15, 'seconds').asMilliseconds()
 
 function pollServers() {
-    console.log("pollServers()")
-
     const addresses = union([
         masterCache.get("live_servers") || [],
         masterCache.get("pte_servers") || [],
@@ -190,7 +218,14 @@ function pollServers() {
         masterCache.get("wdev2_servers") || [],
         infoCache.keys() || []]
     )
-    console.log(`${addresses.length} addresses`)
+
+    console.log(`INFO Polling ${addresses.length} unique addresses`)
+
+    const failed = {
+        info: [],
+        players: [],
+        rules: [],
+    }
 
     const server_infos = []
     const server_fails = []
@@ -200,7 +235,16 @@ function pollServers() {
         const server = addresses[i];
 
         promises.push(new Promise(resolve => {
-            queryGameServerInfo(server, 3, 5000).then(info => {
+            const attempts = 3;
+            queryGameServerInfo(server, attempts, 15000 / attempts).then(info => {
+                const gameId = Number(info?.gameId);
+                if (!expectedGameIds.has(gameId)) {
+                    // ip:port has been reused for another game
+                    console.log(`WARN Unexpected gameId for ${server} - Check https://steamdb.info/app/${gameId}`)
+                    infoCache.del(server);
+                    return resolve()
+                }
+
                 const stripped_info = {
                     name: info?.name || "",
                     map: info?.map || "",
@@ -243,23 +287,26 @@ function pollServers() {
                         const map = info.map;
                         let decoded = stripped_info?.gamestate?.decoded;
                         if (decoded) {
-                            client.query(`insert into ${process.env.PG_SCHEMA}.map_names (name, gs_gamemode, gs_map, gs_time_of_day, gs_weather, timestamp) 
-                                        values ($1, $2, $3, $4, $5, $6) on conflict (name, gs_gamemode, gs_map, gs_time_of_day, gs_weather) do nothing`,
+                            client.query(`insert into ${process.env.PG_SCHEMA}.map_names (name, gs_gamemode, gs_map, gs_time_of_day, gs_weather, timestamp)
+                                          values ($1, $2, $3, $4, $5,
+                                                  $6) on conflict (name, gs_gamemode, gs_map, gs_time_of_day, gs_weather) do nothing`,
                                 [map, decoded.gamemode, decoded.map, decoded.timeOfDay, decoded.weather, new Date()])
                         }
                     } catch (e) {
-                        console.warn('Table insert failed', e)
+                        console.warn('WARN Maps table insert failed', e)
                     }
                 }
 
                 promises.push(new Promise(resolve => {
                     setTimeout(() => {
-                        queryGameServerRules(server, 2, 5000).then(rules => {
+                        const attempts = 2;
+                        queryGameServerRules(server, attempts, 15000 / attempts).then(rules => {
                             rulesCache.set(server, rules);
 
                             resolve()
                         }).catch(err => {
-                            console.error(`failed query rules ${server} ${infoCache.get(server)?.name}`);
+                            failed.rules.push(server)
+                            console.log(`DEBUG Failed query rules ${server} ${infoCache.get(server)?.name}`);
                             resolve()
                         })
                     }, 200);
@@ -268,7 +315,8 @@ function pollServers() {
                 if (stripped_info.players > 0) {
                     promises.push(new Promise(resolve => {
                         setTimeout(() => {
-                            queryGameServerPlayer(server, 2, 5000).then(response => {
+                            const attempts = 2;
+                            queryGameServerPlayer(server, attempts, 15000 / attempts).then(response => {
                                 const players_stripped = []
                                 response.players.forEach(player => {
                                     players_stripped.push({name: player.name, duration: Math.ceil(player.duration)})
@@ -277,7 +325,8 @@ function pollServers() {
 
                                 resolve()
                             }).catch(err => {
-                                console.error(`failed query players ${server} ${infoCache.get(server)?.name}`);
+                                failed.players.push(server)
+                                console.log(`DEBUG Failed query players ${server} ${infoCache.get(server)?.name}`);
                                 resolve()
                             })
                         }, 200);
@@ -288,7 +337,8 @@ function pollServers() {
                 server_infos.push(stripped_info)
                 resolve()
             }).catch(err => {
-                console.error(`failed query info ${server} ${infoCache.get(server)?.name}`);
+                failed.info.push(server)
+                // console.log(`DEBUG Failed query info (offline) server=${server} name="${infoCache.get(server)?.name}"`);
 
                 const info = infoCache.get(server);
                 const stripped_info = {
@@ -311,9 +361,13 @@ function pollServers() {
     }
 
     Promise.all(promises).then(() => {
+        if (failed.info + failed.players + failed.rules) {
+            console.log(`DEBUG A2S queries failed [info (offline)=${failed.info.length}, players=${failed.players.length}, rules=${failed.rules.length}]`)
+        }
+
         update = {
             time: new Date(),
-            status: `good: ${server_infos.length} servers`,
+            status: `good`,
             servers: server_infos,
             failures: server_fails,
             unknown_maps: unknown_maps,
@@ -350,31 +404,32 @@ function pollServers() {
             }
         });
 
-        console.log(`done ${update.status}`)
-        console.log(`query took ${(new Date() - start) / 1000} seconds`)
+        const queryTimeMs = new Date() - start;
+        console.log(`INFO Poll done [${server_infos.length} online, ${server_fails.length} offline] completed in ${queryTimeMs / 1000} seconds`)
 
         io.sockets.emit("list-update", update)
 
-        setTimeout(pollServers, pollInterval)
+        setTimeout(pollServers, Math.max(pollInterval - queryTimeMs, 0))
     }).catch(err => {
         console.error(err)
 
         setTimeout(pollServers, pollInterval)
     })
 }
+
 pollServers()
 
 
 io.on('connection', (socket) => {
-    console.log(`${socket.id} joined`)
+    console.log(`DEBUG socket=${socket.id} joined`)
 
     socket.on('disconnect', (socket) => {
-        console.log(`${socket.id} left`)
+        console.log(`DEBUG socket=${socket.id} left`)
     });
 
     io.to(socket.id).emit("list-update", update)
 });
 
 server.listen(process.env.PORT || 3000, () => {
-    console.log('listening on *:3000');
+    console.log('INFO Listening on *:3000');
 });
