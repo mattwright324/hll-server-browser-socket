@@ -33,6 +33,8 @@ async function connect() {
         const res = await client.query('SELECT $1::text as connected', ['INFO Connection to postgres successful!']);
         console.log(res.rows[0].connected);
         dbConnected = true;
+    } else {
+        console.log('DEBUG Database not configured')
     }
 }
 
@@ -221,11 +223,9 @@ function pollServers() {
 
     console.log(`INFO Polling ${addresses.length} unique addresses`)
 
-    const failed = {
-        info: [],
-        players: [],
-        rules: [],
-    }
+    var failedInfo = 0
+    var failedPlayers = 0
+    var failedRules = 0
 
     const server_infos = []
     const server_fails = []
@@ -267,7 +267,7 @@ function pollServers() {
                     let gsKey;
                     let decoded = stripped_info?.gamestate?.decoded;
                     if (decoded) {
-                        gsKey = `gamemode=${decoded.gamemode} map=${decoded.map} timeOfDay=${decoded.timeOfDay} weather=${decoded.weather} offSide=${decoded.offensiveSide} version=${decoded.version}`
+                        gsKey = `gamemode=${decoded.gamemode} map=${decoded.map} timeOfDay=${decoded.timeOfDay} weather=${decoded.weather} offSide=${decoded.offensiveSide} gs_version=${decoded.version} gameId=${stripped_info.gameId}`
                     }
                     if (!unknown_maps.hasOwnProperty(map)) {
                         unknown_maps[map] = {
@@ -284,13 +284,25 @@ function pollServers() {
                 }
                 if (dbConnected) {
                     try {
+                        const gameId = Number(info?.gameId ?? -1);
+
+                        let isDev = false;
+                        if (gameId !== 686810) {
+                            isDev = true;
+                        } else {
+                            ["devqa", "qa testing", "hll dev team", "hll playtest server"].forEach(term => {
+                                if (stripped_info?.name.toLowerCase().includes(term)) {
+                                    isDev = true
+                                }
+                            })
+                        }
+
                         const map = info.map;
-                        let decoded = stripped_info?.gamestate?.decoded;
+                        let decoded = stripped_info?.gamestate?.decoded || {};
                         if (decoded) {
-                            client.query(`insert into ${process.env.PG_SCHEMA}.map_names (name, gs_gamemode, gs_map, gs_time_of_day, gs_weather, timestamp)
-                                          values ($1, $2, $3, $4, $5,
-                                                  $6) on conflict (name, gs_gamemode, gs_map, gs_time_of_day, gs_weather) do nothing`,
-                                [map, decoded.gamemode, decoded.map, decoded.timeOfDay, decoded.weather, new Date()])
+                            client.query(`insert into ${process.env.PG_SCHEMA}.map_names (name, gs_gamemode, gs_map, gs_time_of_day, gs_weather, gs_version, game_id, is_dev, timestamp)
+                                          values ($1, $2, $3, $4, $5, $6, $7, $8, $9) on conflict (name, gs_gamemode, gs_map, gs_time_of_day, gs_weather, gs_version, game_id, is_dev) do nothing`,
+                                [map, decoded?.gamemode ?? -1, decoded?.map ?? -1, decoded?.timeOfDay ?? -1, decoded?.weather ?? -1, Number(decoded?.version ?? -1), gameId, isDev, new Date()])
                         }
                     } catch (e) {
                         console.warn('WARN Maps table insert failed', e)
@@ -305,7 +317,7 @@ function pollServers() {
 
                             resolve()
                         }).catch(err => {
-                            failed.rules.push(server)
+                            failedRules = failedRules + 1;
                             console.log(`DEBUG Failed query rules ${server} ${infoCache.get(server)?.name}`);
                             resolve()
                         })
@@ -325,7 +337,7 @@ function pollServers() {
 
                                 resolve()
                             }).catch(err => {
-                                failed.players.push(server)
+                                failedPlayers = failedPlayers + 1;
                                 console.log(`DEBUG Failed query players ${server} ${infoCache.get(server)?.name}`);
                                 resolve()
                             })
@@ -337,7 +349,7 @@ function pollServers() {
                 server_infos.push(stripped_info)
                 resolve()
             }).catch(err => {
-                failed.info.push(server)
+                failedInfo += 1
                 // console.log(`DEBUG Failed query info (offline) server=${server} name="${infoCache.get(server)?.name}"`);
 
                 const info = infoCache.get(server);
@@ -361,9 +373,7 @@ function pollServers() {
     }
 
     Promise.all(promises).then(() => {
-        if (failed.info + failed.players + failed.rules) {
-            console.log(`DEBUG A2S queries failed [info (offline)=${failed.info.length}, players=${failed.players.length}, rules=${failed.rules.length}]`)
-        }
+        console.log(`DEBUG A2S queries failed [info (offline)=${failedInfo}, players=${failedPlayers}, rules=${failedRules}]`)
 
         update = {
             time: new Date(),
