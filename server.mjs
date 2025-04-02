@@ -200,7 +200,8 @@ let known_maps = [
     'DEV_I_MORNING_SKM', 'DEV_I_NIGHT_SKM', 'DEV_M_Night_SKM', 'DEV_M_Rain_SKM', 'DEV_M_SKM', 'Mortain_SKM_Day',
     'Mortain_SKM_Overcast', 'Mortain_E', 'Mortain_SKM_Evening', 'DEV_K_Morning_SKM', 'DEV_K_Rain_SKM', 'DEV_K_Night_SKM',
     'DEV_H_Day_SKM', 'DEV_H_Dusk_SKM', 'DEV_N', 'DEV_N_Day_SMK', 'DEV_N_Morning', 'DEV_N_Morning_SKM', 'DEV_N_Night',
-    'DEV_N_Night_SKM', "DEV_N_Day_SKM",
+    'DEV_N_Night_SKM', "DEV_N_Day_SKM", "DEV_O", "DEV_O_DAY_SKM", "DEV_O_Dusk", "DEV_O_DUSK_SKM", "DEV_O_Morning",
+    "DEV_O_MORNING_SKM",
 ]
 let unknown_maps = {}
 let update = {
@@ -284,21 +285,28 @@ function pollServers() {
                 }
                 if (dbConnected) {
                     try {
+                        let decoded = stripped_info?.gamestate?.decoded;
                         const gameId = Number(info?.gameId ?? -1);
+                        const official = decoded?.isOfficial || false;
 
                         let isDev = false;
                         if (gameId !== 686810) {
                             isDev = true;
                         } else {
-                            ["devqa", "qa testing", "hll dev team", "hll playtest server"].forEach(term => {
+                            // Expected dev server name terms
+                            ["devqa", "qa testing", "hll dev team", "hll playtest server", "team17"].forEach(term => {
                                 if (stripped_info?.name.toLowerCase().includes(term)) {
                                     isDev = true
                                 }
                             })
+
+                            // Official flag enabled but not a public official server
+                            if (official && !stripped_info?.name.toLowerCase().includes("hll official")) {
+                                isDev = true
+                            }
                         }
 
                         const map = info.map;
-                        let decoded = stripped_info?.gamestate?.decoded || {};
                         if (decoded) {
                             client.query(`insert into ${process.env.PG_SCHEMA}.map_names (name, gs_gamemode, gs_map, gs_time_of_day, gs_weather, gs_version, game_id, is_dev, timestamp)
                                           values ($1, $2, $3, $4, $5, $6, $7, $8, $9) on conflict (name, gs_gamemode, gs_map, gs_time_of_day, gs_weather, gs_version, game_id, is_dev) do nothing`,
