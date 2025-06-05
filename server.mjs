@@ -335,7 +335,7 @@ function pollServers() {
                 if (stripped_info.players > 0) {
                     promises.push(new Promise(resolve => {
                         setTimeout(() => {
-                            const attempts = 2;
+                            const attempts = 3;
                             queryGameServerPlayer(server, attempts, 20000 / attempts).then(response => {
                                 const players_stripped = []
                                 response.players.forEach(player => {
