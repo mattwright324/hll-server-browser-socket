@@ -14,8 +14,6 @@ const __dirname = dirname(fileURLToPath(import.meta.url));
 import moment from 'moment';
 import pg from 'pg'
 
-const {Client} = pg
-
 const dbConfig = {
     host: process.env.PG_HOST,
     port: process.env.PG_PORT,
@@ -24,21 +22,21 @@ const dbConfig = {
     password: process.env.PG_PASS,
 }
 const dbConfigured = dbConfig.host && dbConfig.port && dbConfig.database && dbConfig.user && dbConfig.password && process.env.PG_SCHEMA;
-let client, dbConnected;
+let pgClient, dbConnected;
 
 async function connect() {
     if (dbConfigured) {
-        client = new Client(dbConfig);
-        await client.connect();
-        const res = await client.query('SELECT $1::text as connected', ['INFO Connection to postgres successful!']);
+        pgClient = new pg.Pool(dbConfig);
+        await pgClient.connect();
+
+        const res = await pgClient.query('SELECT $1::text as connected', ['INFO Connection to postgres successful!']);
         console.log(res.rows[0].connected);
         dbConnected = true;
     } else {
         console.log('DEBUG Database not configured')
     }
 }
-
-connect();
+await connect();
 
 app.get('/', (req, res) => {
     res.sendFile(__dirname + '/index.html');
@@ -187,22 +185,28 @@ const serverTTL = moment.duration(3, 'days');
 const serverTTLSec = serverTTL.asSeconds();
 const infoCache = new NodeCache({stdTTL: serverTTLSec, checkperiod: checkperiod});
 const rulesCache = new NodeCache({stdTTL: serverTTLSec, checkperiod: checkperiod});
-const playerTTL = moment.duration(2.5, 'minutes').asSeconds();
+const playerTTL = moment.duration(3.5, 'minutes').asSeconds();
 const playerCache = new NodeCache({stdTTL: playerTTL, checkperiod: checkperiod});
+const playerFailedCache = new NodeCache({
+    stdTTL: moment.duration(15, 'minutes').asSeconds(),
+    checkperiod: checkperiod
+});
 const mapCache = new NodeCache({stdTTL: serverTTLSec, checkperiod: checkperiod});
 
-let known_maps = [
-    'CT', 'CT_N', 'Driel', 'Driel_N', 'Driel_Day', 'elalamein', 'elalamein_N', 'Foy', 'Foy_N', 'Hill400',
-    'Hill400_N', 'Hurtgen', 'Hurtgen_N', 'Kharkov', 'Kharkov_N', 'Kursk', 'Kursk_N', 'Mortain', 'Mortain_O',
-    'Omaha', 'Omaha_N', 'PHL', 'PHL_N', 'Remagen', 'Remagen_N', 'Stalin', 'Stalin_N', 'StMarie', 'StMarie_N',
-    'SME', 'SME_N', 'Utah', 'Utah_N', 'DEV_C_Day_SKM', 'DEV_C_Night_SKM', 'DEV_C_SKM', 'DEV_D_Day_SKM',
-    'DEV_D_Night_SKM', 'DEV_D_SKM', 'DEV_F_DAY_SKM', 'DEV_F_DUSK_SKM', 'DEV_F_RAIN_SKM', 'DEV_I_SKM',
-    'DEV_I_MORNING_SKM', 'DEV_I_NIGHT_SKM', 'DEV_M_Night_SKM', 'DEV_M_Rain_SKM', 'DEV_M_SKM', 'Mortain_SKM_Day',
-    'Mortain_SKM_Overcast', 'Mortain_E', 'Mortain_SKM_Evening', 'DEV_K_Morning_SKM', 'DEV_K_Rain_SKM', 'DEV_K_Night_SKM',
-    'DEV_H_Day_SKM', 'DEV_H_Dusk_SKM', 'DEV_N', 'DEV_N_Day_SMK', 'DEV_N_Morning', 'DEV_N_Morning_SKM', 'DEV_N_Night',
-    'DEV_N_Night_SKM', "DEV_N_Day_SKM", "DEV_O", "DEV_O_DAY_SKM", "DEV_O_Dusk", "DEV_O_DUSK_SKM", "DEV_O_Morning",
-    "DEV_O_MORNING_SKM",
-]
+import fs from 'fs'
+const known_maps = []
+await fs.promises.readFile('known_maps.txt').then((data) => {
+    data.toString().split(/\r?\n/).forEach(line => {
+        line = line.trim()
+        if (line && !line.startsWith('#')) {
+            known_maps.push(line)
+        }
+    })
+}).catch(function (error) {
+    console.log(error);
+})
+console.log(`Loaded ${known_maps.length} known_maps`)
+
 let unknown_maps = {}
 let update = {
     time: new Date(),
@@ -211,7 +215,7 @@ let update = {
     unknown_maps: unknown_maps,
 }
 
-const pollInterval = moment.duration(15, 'seconds').asMilliseconds()
+const pollInterval = moment.duration(30, 'seconds').asMilliseconds()
 
 function pollServers() {
     const addresses = union([
@@ -224,9 +228,9 @@ function pollServers() {
 
     console.log(`INFO Polling ${addresses.length} unique addresses`)
 
-    var failedInfo = 0
-    var failedPlayers = 0
-    var failedRules = 0
+    var failedInfo = []
+    var failedPlayers = []
+    var failedRules = []
 
     const server_infos = []
     const server_fails = []
@@ -308,7 +312,7 @@ function pollServers() {
 
                         const map = info.map;
                         if (decoded) {
-                            client.query(`insert into ${process.env.PG_SCHEMA}.map_names (name, gs_gamemode, gs_map, gs_time_of_day, gs_weather, gs_version, game_id, is_dev, timestamp)
+                            pgClient.query(`insert into ${process.env.PG_SCHEMA}.map_names (name, gs_gamemode, gs_map, gs_time_of_day, gs_weather, gs_version, game_id, is_dev, timestamp)
                                           values ($1, $2, $3, $4, $5, $6, $7, $8, $9) on conflict (name, gs_gamemode, gs_map, gs_time_of_day, gs_weather, gs_version, game_id, is_dev) do nothing`,
                                 [map, decoded?.gamemode ?? -1, decoded?.map ?? -1, decoded?.timeOfDay ?? -1, decoded?.weather ?? -1, Number(decoded?.version ?? -1), gameId, isDev, new Date()])
                         }
@@ -325,14 +329,14 @@ function pollServers() {
 
                             resolve()
                         }).catch(err => {
-                            failedRules = failedRules + 1;
+                            failedRules.push(server)
                             console.log(`DEBUG Failed query rules ${server} ${infoCache.get(server)?.name}`);
                             resolve()
                         })
                     }, 200);
                 }))
 
-                if (stripped_info.players > 0) {
+                if (stripped_info.players > 0 && !playerFailedCache.has(server)) {
                     promises.push(new Promise(resolve => {
                         setTimeout(() => {
                             const attempts = 2;
@@ -345,8 +349,10 @@ function pollServers() {
 
                                 resolve()
                             }).catch(err => {
-                                failedPlayers = failedPlayers + 1;
+                                failedPlayers.push(server)
                                 console.log(`DEBUG Failed query players ${server} ${infoCache.get(server)?.name}`);
+                                playerFailedCache.set(server, {fails: 1, date: moment()})
+
                                 resolve()
                             })
                         }, 200);
@@ -357,7 +363,7 @@ function pollServers() {
                 server_infos.push(stripped_info)
                 resolve()
             }).catch(err => {
-                failedInfo += 1
+                failedInfo.push(server)
                 // console.log(`DEBUG Failed query info (offline) server=${server} name="${infoCache.get(server)?.name}"`);
 
                 const info = infoCache.get(server);
@@ -381,7 +387,7 @@ function pollServers() {
     }
 
     Promise.all(promises).then(() => {
-        console.log(`DEBUG A2S queries failed [info (offline)=${failedInfo}, players=${failedPlayers}, rules=${failedRules}]`)
+        console.log(`DEBUG A2S queries failed [info (offline)=${failedInfo.length}, players=${failedPlayers.length}, rules=${failedRules.length}]`)
 
         update = {
             time: new Date(),
@@ -436,6 +442,54 @@ function pollServers() {
 }
 
 pollServers()
+
+function pollFailedPlayers() {
+    const addresses = union([
+        playerFailedCache.keys() || []]
+    )
+    for (let i = 0; i < addresses.length; i++) {
+        const server = addresses[i];
+        const info = infoCache.get(server);
+        const failStat = playerFailedCache.get(server);
+
+        if (info.players > 0 && !failStat.pause) {
+            failStat.pause = true
+            playerFailedCache.set(server, failStat);
+
+            const baseDelay = 15 * 1000; // 15 sec
+            const maxDelay = 3.25 * 60 * 1000; // 3 min 15 sec
+            const delay = Math.min(maxDelay, baseDelay + failStat.fails * 30 * 1000);
+
+            setTimeout(() => {
+                console.log(`DEBUG Delayed players query ${delay/1000}s ${server} ${infoCache.get(server)?.name}`)
+
+                const attempts = 2;
+                queryGameServerPlayer(server, attempts, 15000 / attempts).then(response => {
+                    console.log(`DEBUG Success delayed query players ${server} ${infoCache.get(server)?.name}`);
+                    const players_stripped = []
+                    response.players.forEach(player => {
+                        players_stripped.push({name: player.name, duration: Math.ceil(player.duration)})
+                    });
+                    playerCache.set(server, players_stripped);
+                    failStat.pause = false;
+                    failStat.date = moment()
+                    playerFailedCache.set(server, failStat);
+                }).catch(err => {
+                    console.log(`DEBUG Failed delayed query players ${server} ${infoCache.get(server)?.name}`);
+                    failStat.fails += 1;
+                    failStat.pause = false;
+                    failStat.date = moment()
+                    playerFailedCache.set(server, failStat);
+                })
+            }, delay);
+
+        }
+    }
+
+    setTimeout(pollFailedPlayers, 1000)
+}
+
+pollFailedPlayers()
 
 
 io.on('connection', (socket) => {
