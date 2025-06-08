@@ -340,7 +340,7 @@ function pollServers() {
                     promises.push(new Promise(resolve => {
                         setTimeout(() => {
                             const attempts = 2;
-                            queryGameServerPlayer(server, attempts, 30000 / attempts).then(response => {
+                            queryGameServerPlayer(server, attempts, 15000 / attempts).then(response => {
                                 const players_stripped = []
                                 response.players.forEach(player => {
                                     players_stripped.push({name: player.name, duration: Math.ceil(player.duration)})
@@ -458,14 +458,14 @@ function pollFailedPlayers() {
 
             const baseDelay = 15 * 1000; // 15 sec
             const maxDelay = 3.25 * 60 * 1000; // 3 min 15 sec
-            const delay = Math.min(maxDelay, baseDelay + failStat.fails * 30 * 1000);
+            const delay = baseDelay + failStat.fails * 30 * 1000;
 
             setTimeout(() => {
                 console.log(`DEBUG Delayed players query ${delay/1000}s ${server} ${infoCache.get(server)?.name}`)
 
                 const attempts = 2;
                 queryGameServerPlayer(server, attempts, 15000 / attempts).then(response => {
-                    console.log(`DEBUG Success delayed query players ${server} ${infoCache.get(server)?.name}`);
+                    console.log(`DEBUG Success delayed players query ${delay/1000}s ${server} ${infoCache.get(server)?.name}`);
                     const players_stripped = []
                     response.players.forEach(player => {
                         players_stripped.push({name: player.name, duration: Math.ceil(player.duration)})
@@ -475,7 +475,7 @@ function pollFailedPlayers() {
                     failStat.date = moment()
                     playerFailedCache.set(server, failStat);
                 }).catch(err => {
-                    console.log(`DEBUG Failed delayed query players ${server} ${infoCache.get(server)?.name}`);
+                    console.log(`DEBUG Failed delayed players query ${delay/1000}s ${server} ${infoCache.get(server)?.name}`);
                     failStat.fails += 1;
                     failStat.pause = false;
                     failStat.date = moment()
