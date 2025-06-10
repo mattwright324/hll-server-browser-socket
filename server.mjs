@@ -188,7 +188,7 @@ const rulesCache = new NodeCache({stdTTL: serverTTLSec, checkperiod: checkperiod
 const playerTTL = moment.duration(3.5, 'minutes').asSeconds();
 const playerCache = new NodeCache({stdTTL: playerTTL, checkperiod: checkperiod});
 const playerFailedCache = new NodeCache({
-    stdTTL: moment.duration(15, 'minutes').asSeconds(),
+    stdTTL: moment.duration(3.5, 'minutes').asSeconds(),
     checkperiod: checkperiod
 });
 const mapCache = new NodeCache({stdTTL: serverTTLSec, checkperiod: checkperiod});
@@ -451,6 +451,10 @@ function pollFailedPlayers() {
         const server = addresses[i];
         const info = infoCache.get(server);
         const failStat = playerFailedCache.get(server);
+        if (!failStat) {
+            console.log(`DEBUG Delayed players un-queueing ${server} ${infoCache.get(server)?.name}`)
+            continue;
+        }
 
         if (info.players > 0 && !failStat.pause) {
             failStat.pause = true
@@ -458,7 +462,7 @@ function pollFailedPlayers() {
 
             const baseDelay = 15 * 1000; // 15 sec
             const maxDelay = 3.25 * 60 * 1000; // 3 min 15 sec
-            const delay = baseDelay + failStat.fails * 30 * 1000;
+            const delay = Math.min(maxDelay, baseDelay + failStat.fails * 30 * 1000);
 
             setTimeout(() => {
                 console.log(`DEBUG Delayed players query ${delay/1000}s ${server} ${infoCache.get(server)?.name}`)
