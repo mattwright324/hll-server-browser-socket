@@ -114,8 +114,14 @@ function decodeGs(gsBase64) {
     const isCrossplay = readBin(1, "Crss Play");
     const offensiveSide = readBin(3, "Off. Attk");
     const map = readBin(8, "Map");
-    const timeOfDay = readBin(8, "Time o Day");
+    readBin(4, "???");
+    const timeOfDay = readBin(4, "Time o Day");
     const weather = readBin(8, "Weather");
+    const matchTimeMin = readBin(8, "Match Time (Min)");
+    readBin(11, "???", "yellowgreen");
+    const isDynWthrDisabled = readBin(1, "Dyn Wthr Disabled");
+    const warmupTimeMin = readBin(4, "Warmup Time (Min)");
+    readBin(8,"???", "yellowgreen");
 
     return {
         raw: gsBase64,
@@ -134,6 +140,9 @@ function decodeGs(gsBase64) {
             maxQueue: maxQueue,
             isOfficial: isOfficial === 1,
             isCrossplay: isCrossplay === 1,
+            matchTimeMin: matchTimeMin,
+            warmupTimeMin: warmupTimeMin,
+            isDynWthrDisabled: isDynWthrDisabled === 1,
         }
     }
 }
