@@ -296,35 +296,23 @@ function pollServers() {
                         unknown_maps[map].gsValues.push(gsKey)
                     }
                 }
+
                 if (dbConnected) {
                     try {
                         let decoded = stripped_info?.gamestate?.decoded;
-                        const gameId = Number(info?.gameId ?? -1);
-                        const official = decoded?.isOfficial || false;
-
-                        let isDev = false;
-                        if (gameId !== 686810) {
-                            isDev = true;
-                        } else {
-                            // Expected dev server name terms
-                            ["devqa", "qa testing", "hll dev team", "hll playtest server", "team17"].forEach(term => {
-                                if (stripped_info?.name.toLowerCase().includes(term)) {
-                                    isDev = true
-                                }
-                            })
-
-                            // Official flag enabled but not a public official server
-                            if (official && !stripped_info?.name.toLowerCase().includes("hll official")) {
-                                isDev = true
-                            }
-                        }
-
                         const map = info.map;
-                        if (decoded) {
-                            pgClient.query(`insert into ${process.env.PG_SCHEMA}.map_names (name, gs_gamemode, gs_map, gs_time_of_day, gs_weather, gs_version, game_id, is_dev, timestamp)
-                                          values ($1, $2, $3, $4, $5, $6, $7, $8, $9) on conflict (name, gs_gamemode, gs_map, gs_time_of_day, gs_weather, gs_version, game_id, is_dev) do nothing`,
-                                [map, decoded?.gamemode ?? -1, decoded?.map ?? -1, decoded?.timeOfDay ?? -1, decoded?.weather ?? -1, Number(decoded?.version ?? -1), gameId, isDev, new Date()])
-                        }
+                        const gameId = Number(info?.gameId ?? -1);
+                        const gs_version = Number(decoded?.version ?? -1);
+                        const gs_bin = Buffer.from(base64ToHex(gsBase64 || ""), 'hex')
+
+                        pgClient.query(`insert into ${process.env.PG_SCHEMA}.server_states (a2s_map, a2s_folder, a2s_gameid, gs_b64, gs_bin, gs_version, first_seen, first_server_name, last_seen, last_server_name)
+                                            values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10) 
+                                            on conflict (a2s_map, a2s_folder, a2s_gameid, gs_b64) 
+                                            do update set
+                                                last_seen = EXCLUDED.last_seen,
+                                                last_server_name = EXCLUDED.last_server_name`,
+                            [map || "", info.folder || "", gameId, gsBase64 || "", gs_bin, gs_version, new Date(), info.name, new Date(), info.name]
+                        )
                     } catch (e) {
                         console.warn('WARN Maps table insert failed', e)
                     }
