@@ -123,3 +123,11 @@ DEV_Q_DUSK
 DEV_Q_DUSK_SKM
 DEV_Q_NIGHT
 DEV_Q_NIGHT_SKM
+
+# Juno Beach
+# GS: 20
+DEV_P
+DEV_P_Morning
+DEV_P_Night
+DEV_P_SKM_Day
+DEV_P_SKM_Night
